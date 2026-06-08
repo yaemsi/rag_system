@@ -1,0 +1,50 @@
+[project]
+name = "coveo-challenge"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "torch",
+    "torchvision",
+    "transformers",
+    "flash-attn-3",
+    "sentence-transformers",
+    "huggingface",
+    "datasets",
+    "accelerate",
+    "deepspeed",
+    "evaluate",
+    "numpy",
+    "pandas",
+    "scipy",
+    "requests",
+    "ipykernel",
+    "jupyterlab",
+    "loguru",
+    "ipywidgets",
+    "matplotlib",
+    "wandb",
+    "pre-commit",
+]
+
+[tool.uv.sources]
+torch = {index = "pytorch-cu132", marker = "sys_platform == 'linux'"}
+torchvision = {index = "pytorch-cu132", marker = "sys_platform == 'linux'"}
+torchaudio = {index = "pytorch-cu132", marker = "sys_platform == 'linux'"}
+flash-attn-3 = { url = "https://github.com/windreamer/flash-attention3-wheels/releases/download/2026.05.20-072445f/flash_attn_3-3.0.0%2B20260519.cu132torch2120cxx11abitrue.8a8b2f-cp39-abi3-linux_x86_64.whl" }
+
+
+[[tool.uv.index]]
+name = "pytorch-cu132"
+url = "https://download.pytorch.org/whl/cu132"
+
+
+[tool.setuptools.packages.find]
+    where = ["."] # Search in the current directory
+    include = ["coveo_challenge"] # Include packages starting with these names
+
+# Configuration for uv
+[tool.uv]
+index-strategy = "unsafe-best-match" # Crucial for resolving complex dependency conflicts
+no-build-isolation-package = ["flash-attn-3"]
