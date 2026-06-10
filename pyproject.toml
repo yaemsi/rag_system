@@ -26,6 +26,10 @@ dependencies = [
     "matplotlib",
     "wandb",
     "pre-commit",
+    "ollama>=0.6.2",
+    "faiss-cpu>=1.14.2",
+    "rank-bm25>=0.2.2",
+    "tqdm>=4.68.1",
 ]
 
 [tool.uv.sources]
@@ -42,7 +46,7 @@ url = "https://download.pytorch.org/whl/cu132"
 
 [tool.setuptools.packages.find]
     where = ["."] # Search in the current directory
-    include = ["coveo_challenge"] # Include packages starting with these names
+    include = ["mini_rag"] # Include packages starting with these names
 
 # Configuration for uv
 [tool.uv]
