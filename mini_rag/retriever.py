@@ -16,16 +16,19 @@ from __future__ import annotations
 
 from argparse import Namespace
  
-import re
 from dataclasses import dataclass
- 
+
 import numpy as np
+
+import re
 import faiss
-from rank_bm25 import BM25Okapi
 import ollama
+
+from loguru import logger
+from rank_bm25 import BM25Okapi
  
 from mini_rag.corpus import Document
-  
+from tqdm import tqdm
  
 @dataclass
 class RetrievedChunk:
@@ -34,11 +37,21 @@ class RetrievedChunk:
     chunk_index: int
     score: float
  
- 
+# Hard context limits per model (in characters, conservative estimate)
+# mxbai-embed-large: 512 tokens ≈ 1800 chars
+# nomic-embed-text:  8192 tokens ≈ no practical limit for our chunks
+_MODEL_CHAR_LIMITS: dict[str, int] = {
+    "mxbai-embed-large": 1800,
+    "nomic-embed-text":  32000,
+}
+
 def _embed(model_id: str, texts: list[str]) -> np.ndarray:
     """Embed a list of texts via Ollama; return (N, DIM) float32 array."""
     vecs = []
+    char_limit = _MODEL_CHAR_LIMITS.get(model_id, 1800)
     for text in texts:
+        if len(text) > char_limit:
+            text = text[:char_limit]
         resp = ollama.embeddings(model=model_id, prompt=text)
         vecs.append(resp["embedding"])
     return np.array(vecs, dtype=np.float32)
@@ -79,13 +92,11 @@ class Retriever:
         self._bm25: BM25Okapi | None = None
  
     # ── Build ────────────────────────────────────────────────────────────────
- 
     def build(self, docs: list[Document], show_progress: bool = True) -> None:
         """
         Index all documents. Embeds every chunk via Ollama.
         Expensive on first run — results should be cached externally.
         """
-        from tqdm import tqdm
  
         self._docs = {doc.id: doc for doc in docs}
  
@@ -96,7 +107,7 @@ class Retriever:
                 self._chunk_doc_ids.append(doc.id)
  
         n = len(self._chunks)
-        print(f"[Retriever] Indexing {n} chunks from {len(docs)} documents …")
+        logger.info(f"[Retriever] Indexing {n} chunks from {len(docs)} documents …")
  
         # ── Dense index ───────────────────────────────────────────────────
         batch_size = self._params.embedding_batch_size
@@ -121,10 +132,9 @@ class Retriever:
         tokenized = [_tokenize(c) for c in self._chunks]
         self._bm25 = BM25Okapi(tokenized)
  
-        print(f"[Retriever] Index ready.")
+        logger.info(f"[Retriever] Index ready.")
  
     # ── Query ────────────────────────────────────────────────────────────────
- 
     def retrieve(
         self,
         query: str,
@@ -203,24 +213,111 @@ class Retriever:
         """
         Heuristic: if the query mentions a known product name / version,
         return the set of matching doc IDs to pre-filter retrieval.
-        Returns None if no strong metadata signal is found.
+        Returns None if no strong metadata signal is found — in which case
+        retrieval runs over the full index.
+ 
+        Scoring per doc (higher = more specific match):
+          +3  exact combined name match (e.g. "Solara 40C" as phrase in query)
+          +2  suffix matches (most discriminative for product variants)
+          +2  version matches (normalises both "v2.1.15" and "2.1.15")
+          +1  prefix matches (broad family signal)
+ 
+        Fallback tiers (applied in order, return first non-empty):
+          1. score >= 4  (prefix + suffix + version — very specific, always trust)
+          2. score >= 3  (suffix + version, or full combined match)
+          3. score >= 2  (suffix alone, or version alone)
+          4. score >= 1  (prefix alone — only if result set is large enough,
+                          otherwise fall back to full index to avoid FILTER_KILL
+                          on small wrong sets)
         """
+
+        # Minimum token length to prevent short common words (e.g. "qubit", "unify")
+        # from firing the metadata filter on Coveo docs where they appear as API names.
+        _MIN_PREFIX_TOKEN_LEN = 6
+    
+        # If the filter returns a small candidate set (≤ this) and we're only matching
+        # on prefix alone (score=1), fall back to full index — a tight wrong set is
+        # worse than no filter at all.
+        _MAX_PREFIX_ONLY_SIZE = 6
+
         q_lower = query.lower()
-        matches: set[str] = set()
+        q_tokens = set(re.findall(r"\w+", q_lower))
+        scores_map: dict[str, int] = {}
  
         for doc in self._docs.values():
             if not doc.is_synthetic:
                 continue
-            signals = [
-                doc.product_prefix,
-                doc.product_suffix,
-                doc.product_version,
-                doc.product_name,
-            ]
-            for sig in signals:
-                if sig and sig.lower() in q_lower:
-                    matches.add(doc.id)
-                    break
  
-        return matches if matches else None
+            score = 0
+            prefix  = doc.product_prefix
+            suffix  = doc.product_suffix
+            version = doc.product_version
+ 
+            # Full combined name (e.g. "Solara 40C")
+            if prefix and suffix:
+                combined = f"{prefix.lower()} {suffix.lower()}"
+                if combined in q_lower:
+                    score += 3
+ 
+            # Individual fields
+            if prefix and prefix.lower() in q_lower:
+                score += 1
+            if suffix and suffix.lower() in q_lower:
+                score += 2
+            if version:
+                # Normalise both "v1.2.3" and "1.2.3" forms
+                v_clean = version.lower().lstrip("v")
+                if version.lower() in q_lower or v_clean in q_lower:
+                    score += 2
+ 
+            # Token-level prefix match — enforce minimum token length to prevent
+            # short common words ("qubit", "unify") from matching Coveo API queries
+            if score == 0 and prefix:
+                for tok in re.findall(r"\w+", prefix.lower()):
+                    if len(tok) >= _MIN_PREFIX_TOKEN_LEN and tok in q_tokens:
+                        score = 1
+                        break
+ 
+            if score > 0:
+                scores_map[doc.id] = score
+ 
+        if not scores_map:
+            return None
+ 
+        # Return most specific match tier with at least 1 result.
+        # For tier 1 (prefix-only, score=1): only apply the filter if the
+        # candidate set is large enough — a small tight wrong set is worse
+        # than no filter (it causes FILTER_KILL with no fallback).
+        for threshold in (4, 3, 2):
+            tier = {did for did, s in scores_map.items() if s >= threshold}
+            if tier:
+                # Version-mismatch expansion: if the query contains a version string
+                # but no doc in this tier matches it, expand to the full prefix+suffix
+                # family to avoid locking into wrong-version docs.
+                # E.g. "Yore ZQ8 version 1.1.10" → suffix matches (score=2) but
+                # version 1.1.10 is absent → expand to all Yore ZQ8 docs.
+                version_in_query = bool(re.search(r"\b\d+\.\d+\.\d+\b", query.lower()))
+                if version_in_query and threshold == 2:
+                    # Check if any doc in this tier actually matched the version
+                    version_matched = {
+                        did for did, s in scores_map.items()
+                        if s >= 4  # score>=4 requires version match
+                    }
+                    if not version_matched:
+                        # No version match — expand to full prefix family to avoid
+                        # locking into wrong-version docs
+                        expanded = {did for did, s in scores_map.items() if s >= 1}
+                        if len(expanded) > len(tier):
+                            return expanded
+                return tier
+ 
+        # Tier 4: prefix-only match — only trust if set is large enough
+        # (large set = prefix is genuinely discriminative; small set = likely wrong family)
+        prefix_tier = {did for did, s in scores_map.items() if s >= 1}
+        if len(prefix_tier) > _MAX_PREFIX_ONLY_SIZE:
+            return prefix_tier
+ 
+        # Prefix-only with small set → fall back to full index
+        return None
+ 
  

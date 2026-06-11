@@ -1,26 +1,19 @@
 """
-evaluation.py — Evaluation loop + metrics.
- 
-Metrics implemented:
-  1. ExactMatchMetric     — strict string equality after normalisation
-  2. TokenF1Metric        — token-level precision/recall F1 (standard QA metric)
-  3. AnswerCoverageMetric — fraction of gold answer tokens present in predicted answer
-  4. RefusalRateMetric    — fraction of questions the system refused to answer (None)
+evaluation.py — Evaluation loop.
+Defines the EvaluationLoop and RetrievalEvaluationLoop classes, which run evaluation of a QnA system against a set of challenges and compute metrics. 
+Also defines the QnAChallenge data class for representing individual question-answer pairs, and a summarise() helper to compute mean scores per metric.
 """
  
 from __future__ import annotations
- 
-import re
-import string
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
  
 from mini_rag.qna_system import GroundedAnswer, QnASystem
+from mini_rag.metrics import Metric, RetrievalMetric
  
  
 # ── Data container ────────────────────────────────────────────────────────────
- 
+
 @dataclass
 class QnAChallenge:
     """Container for a single question and its target answer."""
@@ -29,160 +22,6 @@ class QnAChallenge:
     target_document_id: str
  
  
-# ── Base metric ───────────────────────────────────────────────────────────────
- 
-class Metric(ABC):
-    """Base class for evaluation metrics."""
- 
-    @abstractmethod
-    def compute(
-        self,
-        answers: list[GroundedAnswer | None],
-        target_answers: list[str],
-    ) -> list[float]:
-        pass
- 
-    @abstractmethod
-    def __str__(self) -> str:
-        pass
- 
-    def __repr__(self) -> str:
-        return self.__str__()
- 
- 
-# ── Normalisation helper ──────────────────────────────────────────────────────
- 
-def _normalise(text: str) -> str:
-    """Lowercase, strip punctuation and extra whitespace."""
-    text = text.lower()
-    text = text.translate(str.maketrans("", "", string.punctuation))
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
- 
- 
-def _tokens(text: str) -> list[str]:
-    return _normalise(text).split()
- 
- 
-# ── Metrics ───────────────────────────────────────────────────────────────────
- 
-class ExactMatchMetric(Metric):
-    """
-    1.0 if the normalised predicted answer exactly matches the gold answer,
-    0.0 otherwise. None predictions score 0.0.
- 
-    Why: a strict upper-bound signal; useful for short factual answers.
-    """
- 
-    def compute(
-        self,
-        answers: list[GroundedAnswer | None],
-        target_answers: list[str],
-    ) -> list[float]:
-        scores = []
-        for pred, gold in zip(answers, target_answers):
-            if pred is None:
-                scores.append(0.0)
-            else:
-                scores.append(float(_normalise(pred.text) == _normalise(gold)))
-        return scores
- 
-    def __str__(self) -> str:
-        return "exact_match"
- 
- 
-class TokenF1Metric(Metric):
-    """
-    Token-level F1: harmonic mean of precision and recall over bag-of-words.
-    Standard metric for extractive / abstractive QA (SQuAD-style).
-    None predictions score 0.0.
- 
-    Why: captures partial matches — important when gold answers are long
-    summaries where exact match is too strict.
-    """
- 
-    def compute(
-        self,
-        answers: list[GroundedAnswer | None],
-        target_answers: list[str],
-    ) -> list[float]:
-        scores = []
-        for pred, gold in zip(answers, target_answers):
-            if pred is None:
-                scores.append(0.0)
-                continue
-            pred_tokens = _tokens(pred.text)
-            gold_tokens = _tokens(gold)
-            if not pred_tokens or not gold_tokens:
-                scores.append(0.0)
-                continue
-            pred_set = set(pred_tokens)
-            gold_set = set(gold_tokens)
-            common = pred_set & gold_set
-            if not common:
-                scores.append(0.0)
-                continue
-            precision = len(common) / len(pred_set)
-            recall = len(common) / len(gold_set)
-            f1 = 2 * precision * recall / (precision + recall)
-            scores.append(f1)
-        return scores
- 
-    def __str__(self) -> str:
-        return "token_f1"
- 
- 
-class AnswerCoverageMetric(Metric):
-    """
-    Fraction of gold answer tokens that appear in the predicted answer.
-    Equivalent to token recall — penalises missing information.
-    None predictions score 0.0.
- 
-    Why: grounding quality; we want to ensure the predicted answer covers
-    the key facts in the gold answer, even if it adds extra text.
-    """
- 
-    def compute(
-        self,
-        answers: list[GroundedAnswer | None],
-        target_answers: list[str],
-    ) -> list[float]:
-        scores = []
-        for pred, gold in zip(answers, target_answers):
-            if pred is None:
-                scores.append(0.0)
-                continue
-            pred_tokens = set(_tokens(pred.text))
-            gold_tokens = _tokens(gold)
-            if not gold_tokens:
-                scores.append(1.0)
-                continue
-            covered = sum(1 for t in gold_tokens if t in pred_tokens)
-            scores.append(covered / len(gold_tokens))
-        return scores
- 
-    def __str__(self) -> str:
-        return "answer_coverage"
- 
- 
-class RefusalRateMetric(Metric):
-    """
-    Fraction of questions the system refused to answer (returned None).
-    Not a quality metric per se, but a diagnostic: high refusal rate may
-    indicate an overly conservative retriever or reader threshold.
- 
-    Why: helps detect silent failures vs. calibrated abstentions.
-    """
- 
-    def compute(
-        self,
-        answers: list[GroundedAnswer | None],
-        target_answers: list[str],
-    ) -> list[float]:
-        return [1.0 if a is None else 0.0 for a in answers]
- 
-    def __str__(self) -> str:
-        return "refusal_rate"
  
  
 # ── Evaluation loop ───────────────────────────────────────────────────────────
@@ -238,3 +77,120 @@ class EvaluationLoop:
 def summarise(results: dict[str, list[float]]) -> dict[str, float]:
     """Compute mean score per metric."""
     return {name: sum(scores) / len(scores) for name, scores in results.items()}
+
+
+
+
+@dataclass
+class RetrievalQueryResult:
+    """Per-query retrieval details produced by RetrievalEvaluationLoop."""
+    question: str
+    gold_id: str
+    gold_type: str                        # "synthetic" | "coveo"
+    retrieved_ids: list[str]
+    retrieved_scores: dict[str, float]    # doc_id -> RRF score
+    found_at: int | None                  # 1-based rank, or None if not found
+    filter_applied: bool
+    filter_size: int
+    filter_contains_gold: bool | None
+    failure_mode: str                     # "OK" | "LATE" | "MISS" | "FILTER_KILL"
+ 
+def _doc_type(doc_id: str) -> str:
+    try:
+        int(doc_id)
+        return "synthetic"
+    except ValueError:
+        return "coveo"
+
+class RetrievalEvaluationLoop:
+    """
+    Evaluates a Retriever independently of the LLM reader.
+    Runs retrieval for all challenges and computes retrieval metrics.
+
+    Usage
+    -----
+    from mini_rag.evaluation import (
+        RetrievalEvaluationLoop, RecallAtK, PrecisionAtK, MeanReciprocalRank
+    )
+    loop = RetrievalEvaluationLoop(
+        challenges=challenges,
+        metrics=[RecallAtK(1), RecallAtK(5), RecallAtK(10), PrecisionAtK(5), MeanReciprocalRank()],
+    )
+    results = loop.run(retriever)
+    print(summarise(results))
+    """
+
+    def __init__(
+        self,
+        challenges: list[QnAChallenge],
+        metrics: list[RetrievalMetric],
+        top_k: int = 10,
+    ) -> None:
+        self._challenges = challenges
+        self._metrics = metrics
+        self._top_k = top_k
+
+    def run(
+        self, retriever
+    ) -> tuple[dict[str, list[float]], list[RetrievalQueryResult]]:
+        """
+        Retrieve for all challenges, compute metrics, and collect per-query details.
+ 
+        Returns
+        -------
+        results : dict[str, list[float]]
+            Metric name -> per-query scores (same structure as EvaluationLoop).
+        query_results : list[RetrievalQueryResult]
+            Per-query retrieval details for failure analysis and verbose logging.
+        """
+        retrieved_ids_list: list[list[str]] = []
+        query_results: list[RetrievalQueryResult] = []
+ 
+        for ch in self._challenges:
+            gold_id = ch.target_document_id
+            candidate_ids = retriever.filter_by_metadata(ch.question)
+            chunks = retriever.retrieve(
+                query=ch.question,
+                candidate_doc_ids=candidate_ids,
+            )
+ 
+            retrieved_ids    = [c.doc_id for c in chunks]
+            retrieved_scores = {c.doc_id: round(c.score, 5) for c in chunks}
+            retrieved_ids_list.append(retrieved_ids)
+ 
+            filter_applied       = candidate_ids is not None
+            filter_contains_gold = (gold_id in candidate_ids) if filter_applied else None
+            found_at             = next(
+                (rank for rank, did in enumerate(retrieved_ids, 1) if did == gold_id),
+                None,
+            )
+ 
+            if found_at == 1:
+                failure_mode = "OK"
+            elif found_at is not None:
+                failure_mode = "LATE"
+            elif filter_applied and not filter_contains_gold:
+                failure_mode = "FILTER_KILL"
+            else:
+                failure_mode = "MISS"
+ 
+            query_results.append(RetrievalQueryResult(
+                question=ch.question,
+                gold_id=gold_id,
+                gold_type=_doc_type(gold_id),
+                retrieved_ids=retrieved_ids,
+                retrieved_scores=retrieved_scores,
+                found_at=found_at,
+                filter_applied=filter_applied,
+                filter_size=len(candidate_ids) if filter_applied else 0,
+                filter_contains_gold=filter_contains_gold,
+                failure_mode=failure_mode,
+            ))
+ 
+        gold_ids = [ch.target_document_id for ch in self._challenges]
+        metric_results: dict[str, list[float]] = {
+            str(metric): metric.compute(retrieved_ids_list, gold_ids)
+            for metric in self._metrics
+        }
+        return metric_results, query_results
+ 

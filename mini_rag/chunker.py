@@ -16,17 +16,10 @@ import re
  
 from mini_rag.corpus import Document
  
-# Coveo docs: window size / overlap in characters
-CHUNK_SIZE = 800
-CHUNK_OVERLAP = 150
- 
-# Docs shorter than this are never split
-MIN_SPLIT_LEN = CHUNK_SIZE + 50
- 
  
 def _split_by_headings(params: Namespace, text: str) -> list[str]:
     """Split on markdown ## headings; merge very short sections with the next."""
-    chunk_size = params._get_args("chunk_size", default=CHUNK_SIZE)
+    chunk_size = params.chunk_size
     parts = re.split(r"(?m)^(?=##\s)", text)
     chunks: list[str] = []
     for part in parts:
@@ -44,8 +37,8 @@ def _split_by_headings(params: Namespace, text: str) -> list[str]:
 def _sliding_window(params: Namespace, text: str) -> list[str]:
     """Character-level sliding window chunker."""
     
-    size = params._get_args("chunk_size", default=CHUNK_SIZE)
-    overlap = params._get_args("chunk_overlap", default=CHUNK_OVERLAP)
+    size = params.chunk_size
+    overlap = params.chunk_overlap
 
     chunks: list[str] = []
     start = 0
@@ -61,7 +54,7 @@ def chunk_document(params: Namespace, doc: Document) -> list[str]:
     Return a list of text chunks for a document.
     Short documents are returned as a single chunk.
     """
-    min_split_len = params._get_args("min_split_len", default=MIN_SPLIT_LEN)
+    min_split_len = params.min_split_len
     text = doc.text.strip()
  
     if len(text) <= min_split_len:

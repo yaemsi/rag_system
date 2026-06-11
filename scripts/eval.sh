@@ -8,7 +8,13 @@ export CUDA_VISIBLE_DEVICES=0
 export DATA_DIR="./data/gz"
 export INDEX_DIR="./data/index"
 export SPLIT="valid"
-export BATCH_SIZE=16
+export BATCH_SIZE=8
+export EMBED_MODEL="mxbai-embed-large"
+export CHUNK_SIZE=400 #800
+export CHUNK_OVERLAP=80 #150
+export MIN_SPLIT_LEN=450 #850
+export MAX_TOKENS=8192
+export NUM_CTX=16384  #4096 #32768 #65536
 
 
 python main.py \
@@ -16,4 +22,15 @@ python main.py \
     --index_dir $INDEX_DIR \
     --split $SPLIT \
     --eval_batch_size $BATCH_SIZE \
+    --ret_eval \
     --verbose \
+    --max_tokens $MAX_TOKENS \
+    --num_ctx $NUM_CTX \
+#--rebuild \
+#--embed_model $EMBED_MODEL \
+#--chunk_size $CHUNK_SIZE \
+#--chunk_overlap $CHUNK_OVERLAP \
+#--min_split_len $MIN_SPLIT_LEN \
+#--rebuild \
+#--max_tokens $MAX_TOKENS \
+#--num_ctx $NUM_CTX \

@@ -10,9 +10,8 @@ Pipeline per question:
 from __future__ import annotations
 
 from argparse import Namespace
- 
+from loguru import logger
 from pathlib import Path
- 
 from mini_rag.chunker import attach_chunks
 from mini_rag.corpus import Document, load_corpus
 from mini_rag.index_store import load_index, save_index
@@ -134,10 +133,10 @@ def build_system(
     index_exists = (index_dir / "faiss.index").exists()
  
     if index_exists and not force_rebuild:
-        print(f"[build_system] Loading existing index from {index_dir}")
+        logger.info(f"[build_system] Loading existing index from {index_dir}")
         return RAGQnASystem.load(ret_params, read_params, index_dir)
  
-    print(f"[build_system] Building new index from {corpus_path} …")
+    logger.info(f"[build_system] Building new index from {corpus_path} …")
     docs = load_corpus(corpus_path)
     return RAGQnASystem.from_corpus(chunk_params, ret_params, read_params, docs, index_dir=index_dir)
  

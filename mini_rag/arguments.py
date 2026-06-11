@@ -37,6 +37,18 @@ class GeneralArguments:
             "help": "Batch size for evaluation."
         }
     )
+    top_k_eval: int = field(
+        default=10,
+        metadata={
+            "help": "Number of retrieved passages to provide to the reader during evaluation."
+        }
+    )
+    ret_eval: bool = field(
+        default=False,
+        metadata={
+            "help": "Whether to evaluate the retrieval system or not."
+        }
+    )
     verbose: bool = field(
         default=False,
         metadata={
@@ -81,13 +93,14 @@ class RetrieverArguments:
     embed_model: Literal["nomic-embed-text", "mxbai-embed-large"] = field(
         default="nomic-embed-text",
         metadata={
-            "help": "Retriever architecture."
+            "help": "Ollama embedding model to use."
         }
     )
     embed_dim: int = field(
         default=768,
         metadata={
-            "help": "Dimension of the embedding model."
+            "help": "Dimension of the embedding model output. "
+                    "nomic-embed-text=768, mxbai-embed-large=1024."
         }
     )
     top_k_dense: int = field(
@@ -114,7 +127,7 @@ class RetrieverArguments:
             "help": "RRF smoothing constant."
         }
     )
-    emb_batch_size: int = field(
+    embedding_batch_size: int = field(
         default=64,
         metadata={
             "help": "Batch size for embedding procedure."
@@ -122,7 +135,13 @@ class RetrieverArguments:
     )
 
     def __post_init__(self):
-        pass
+        # Auto-set embed_dim if model changed but dim was left at default
+        model_dims = {
+            "nomic-embed-text": 768,
+            "mxbai-embed-large": 1024,
+        }
+        if self.embed_model in model_dims:
+            self.embed_dim = model_dims[self.embed_model]
 
 
 
@@ -145,14 +164,14 @@ class ReaderArguments:
         }
     )
 
-    max_tokens: int = field(
-        default=8192,   # 8192
+    max_tokens: int | None = field(
+        default=None,  #4096 for qwen2.5:7b, 8192 for mistral-nemo and qwen2.5:14b
         metadata={
             "help": "Maximum tokens for generation."
         }
     )
-    num_ctx: int = field(
-        default=16384,  #4096 #32768 #65536
+    num_ctx: int | None = field(
+        default=None,  #4096 16384 32768 65536
         metadata={
             "help": "Context window size for generation."
         }
@@ -160,7 +179,7 @@ class ReaderArguments:
     temperature: float = field(
         default=0.0, # deterministic for grounded QA
         metadata={
-            "help": "Temperature for generation."
+            "help": "ampling temperature (0.0 = deterministic)."
         }
     )
 

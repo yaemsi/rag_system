@@ -13,6 +13,7 @@ from argparse import Namespace
  
 import json
 import pickle
+from loguru import logger
 from pathlib import Path
  
 import faiss
@@ -53,7 +54,7 @@ def save_index(retriever: Retriever, index_dir: str | Path) -> None:
     with open(index_dir / "docs_meta.json", "w") as f:
         json.dump(docs_data, f)
  
-    print(f"[IndexStore] Saved index to {index_dir}")
+    logger.info(f"[IndexStore] Saved index to {index_dir}")
  
  
 def load_index(params: Namespace, index_dir: str | Path) -> Retriever:
@@ -89,7 +90,7 @@ def load_index(params: Namespace, index_dir: str | Path) -> Retriever:
         for doc_id, meta in docs_data.items()
     }
  
-    print(f"[IndexStore] Loaded index from {index_dir} "
+    logger.info(f"[IndexStore] Loaded index from {index_dir} "
           f"({len(retriever._chunks)} chunks, {len(retriever._docs)} docs)")
     return retriever
  
