@@ -21,6 +21,7 @@ from .evaluation import (
     Metric,
     EvaluationLoop,
     RetrievalEvaluationLoop,
+    RetrievalQueryResult,
     summarise,
 )
 
@@ -80,6 +81,7 @@ __all__ = [
     "MeanReciprocalRank",
     "EvaluationLoop",
     "RetrievalEvaluationLoop",
+    "RetrievalQueryResult",
     "RecallAtK",
     "PrecisionAtK",
     "MeanReciprocalRank",

@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal
-
-
+ 
+ 
 @dataclass
 class GeneralArguments:
     """
@@ -43,6 +43,13 @@ class GeneralArguments:
             "help": "Number of retrieved passages to provide to the reader during evaluation."
         }
     )
+    output_dir: str = field(
+        default="./output",
+        metadata={
+            "help": "Directory where result JSON files are saved. "
+                    "File name will be results-{split}.json."
+        }
+    )
     ret_eval: bool = field(
         default=False,
         metadata={
@@ -52,12 +59,12 @@ class GeneralArguments:
     verbose: bool = field(
         default=False,
         metadata={
-            "help": "Whether to print verbose evaluation output."
+            "help": "Whether to print per-question token_f1 scores after QA evaluation."
         }
     )
     def __post_init__(self):
         pass
-
+ 
 @dataclass
 class ChunkerArguments:
     """
@@ -83,8 +90,8 @@ class ChunkerArguments:
     )
     def __post_init__(self):
         pass
-
-
+ 
+ 
 @dataclass
 class RetrieverArguments:
     """
@@ -133,7 +140,7 @@ class RetrieverArguments:
             "help": "Batch size for embedding procedure."
         }
     )
-
+ 
     def __post_init__(self):
         # Auto-set embed_dim if model changed but dim was left at default
         model_dims = {
@@ -142,9 +149,9 @@ class RetrieverArguments:
         }
         if self.embed_model in model_dims:
             self.embed_dim = model_dims[self.embed_model]
-
-
-
+ 
+ 
+ 
 @dataclass
 class ReaderArguments:
     """
@@ -156,14 +163,14 @@ class ReaderArguments:
             "help": "Reader architecture."
         }
     )
-
+ 
     low_confidence_threshold: float = field(
         default=0.005,
         metadata={
             "help": "Threshold for low-confidence retrievals."
         }
     )
-
+ 
     max_tokens: int | None = field(
         default=None,  #4096 for qwen2.5:7b, 8192 for mistral-nemo and qwen2.5:14b
         metadata={
@@ -182,6 +189,6 @@ class ReaderArguments:
             "help": "ampling temperature (0.0 = deterministic)."
         }
     )
-
+ 
     def __post_init__(self):
         pass

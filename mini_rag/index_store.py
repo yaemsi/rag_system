@@ -48,6 +48,7 @@ def save_index(retriever: Retriever, index_dir: str | Path) -> None:
             "product_prefix": doc.product_prefix,
             "product_suffix": doc.product_suffix,
             "product_version": doc.product_version,
+            "inferred_suffix": doc.inferred_suffix,
         }
         for doc_id, doc in retriever._docs.items()
     }
@@ -86,6 +87,7 @@ def load_index(params: Namespace, index_dir: str | Path) -> Retriever:
             product_prefix=meta["product_prefix"],
             product_suffix=meta["product_suffix"],
             product_version=meta["product_version"],
+            inferred_suffix=meta.get("inferred_suffix"),  # absent in old indexes
         )
         for doc_id, meta in docs_data.items()
     }

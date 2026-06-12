@@ -101,7 +101,8 @@ class RAGQnASystem(QnASystem):
         answer_text, doc_ids = self._reader.answer(
             question=question,
             chunks=chunks,
-            low_confidence=low_confidence,
+            #low_confidence=low_confidence,
+            low_confidence=False,
         )
  
         if answer_text is None:

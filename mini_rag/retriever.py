@@ -250,7 +250,7 @@ class Retriever:
  
             score = 0
             prefix  = doc.product_prefix
-            suffix  = doc.product_suffix
+            suffix  = doc.effective_suffix   # product_suffix or inferred_suffix from text
             version = doc.product_version
  
             # Full combined name (e.g. "Solara 40C")

@@ -1,3 +1,4 @@
+
 """
 main.py — Entry point for the Coveo QA challenge.
  
@@ -15,21 +16,27 @@ python main.py --rebuild
 # Evaluate only on validation set:
 python main.py --split valid
  
+# Run retrieval evaluation with per-query diagnosis:
+python main.py --ret_eval --verbose --split valid
+ 
+# Save results to JSON:
+python main.py --split valid --output_dir ./output
+ 
 # Run on bonus queries (no gold answers — prints answers only):
 python main.py --split bonus
 """
  
 from __future__ import annotations
  
-
+import json
 import os
 import sys
-
+ 
 from argparse import Namespace
 from loguru import logger
 from pathlib import Path
 from transformers import HfArgumentParser
-
+ 
 from mini_rag import (
     GeneralArguments,
     ChunkerArguments,
@@ -42,9 +49,10 @@ from mini_rag import (
     build_system,
 )
 from mini_rag import (
-    RetrievalEvaluationLoop, 
-    RecallAtK, 
-    PrecisionAtK, 
+    RetrievalEvaluationLoop,
+    RetrievalQueryResult,
+    RecallAtK,
+    PrecisionAtK,
     MeanReciprocalRank,
     AnswerCoverageMetric,
     EvaluationLoop,
@@ -53,6 +61,7 @@ from mini_rag import (
     RefusalRateMetric,
     TokenF1Metric,
 )
+ 
  
 def make_challenges(rows: list[dict]) -> list[QnAChallenge]:
     return [
@@ -63,6 +72,17 @@ def make_challenges(rows: list[dict]) -> list[QnAChallenge]:
         )
         for r in rows
     ]
+ 
+ 
+def _save_json(data: dict, output_dir: str, split: str) -> None:
+    """Serialize results dict to output_dir/results-{split}.json."""
+    out_path = Path(output_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    file_path = out_path / f"results-{split}.json"
+    with open(file_path, "w") as f:
+        json.dump(data, f, indent=2)
+    logger.info(f"==>> Results saved to {file_path}")
+ 
  
 def run_ret_eval(params: Namespace, system) -> None:
     split = params.split
@@ -116,41 +136,65 @@ def run_ret_eval(params: Namespace, system) -> None:
         coveo     = sum(1 for r in subset if r.gold_type == "coveo")
         logger.info(f"  {mode} by doc type: synthetic={synthetic}  coveo={coveo}")
  
-    if not params.verbose:
-        return
+    # ── Verbose: per-query diagnosis ─────────────────────────────────────────
+    if params.verbose:
+        failed = [r for r in query_results if r.failure_mode != "OK"]
+        logger.info(f"\n{'='*60}")
+        logger.info(f"  Per-query diagnosis — {len(failed)} failed queries")
+        logger.info(f"{'='*60}")
  
-    # ── Verbose: per-query diagnosis for all non-OK queries ──────────────────
-    failed = [r for r in query_results if r.failure_mode != "OK"]
-    logger.info(f"\n{'='*60}")
-    logger.info(f"  Per-query diagnosis — {len(failed)} failed queries")
-    logger.info(f"{'='*60}")
+        for i, r in enumerate(query_results):
+            if r.failure_mode == "OK":
+                continue
  
-    for i, r in enumerate(query_results):
-        if r.failure_mode == "OK":
-            continue
+            icon     = {"LATE": "~", "MISS": "x", "FILTER_KILL": "o"}[r.failure_mode]
+            rank_str = f"rank={r.found_at}" if r.found_at else f"not in top-{top_k}"
  
-        icon     = {"LATE": "~", "MISS": "x", "FILTER_KILL": "o"}[r.failure_mode]
-        rank_str = f"rank={r.found_at}" if r.found_at else f"not in top-{top_k}"
- 
-        logger.info(
-            f"\n  {icon} [{i:03d}] {r.failure_mode:<12} {rank_str:<15} "
-            f"gold={r.gold_id} [{r.gold_type}]"
-        )
-        logger.info(f"    Q: {r.question[:90]}")
- 
-        if r.filter_applied:
             logger.info(
-                f"    filter: {r.filter_size} candidate docs  |  "
-                f"contains_gold={r.filter_contains_gold}"
+                f"\n  {icon} [{i:03d}] {r.failure_mode:<12} {rank_str:<15} "
+                f"gold={r.gold_id} [{r.gold_type}]"
             )
-        else:
-            logger.info("    filter: none (Coveo doc or no metadata match)")
+            logger.info(f"    Q: {r.question[:90]}")
  
-        logger.info(f"    top-5 retrieved:")
-        for rank, doc_id in enumerate(r.retrieved_ids[:5], 1):
-            marker = " <- GOLD" if doc_id == r.gold_id else ""
-            score  = r.retrieved_scores.get(doc_id, 0)
-            logger.info(f"      rank {rank}: {doc_id:<30} score={score}{marker}")
+            if r.filter_applied:
+                logger.info(
+                    f"    filter: {r.filter_size} candidate docs  |  "
+                    f"contains_gold={r.filter_contains_gold}"
+                )
+            else:
+                logger.info("    filter: none (Coveo doc or no metadata match)")
+ 
+            logger.info(f"    top-5 retrieved:")
+            for rank, doc_id in enumerate(r.retrieved_ids[:5], 1):
+                marker = " <- GOLD" if doc_id == r.gold_id else ""
+                score  = r.retrieved_scores.get(doc_id, 0)
+                logger.info(f"      rank {rank}: {doc_id:<30} score={score}{marker}")
+ 
+    # ── Save JSON ─────────────────────────────────────────────────────────────
+    output = {
+        "split": split,
+        "evaluation_type": "retrieval",
+        "n_questions": n,
+        "summary": summary,
+        "failure_modes": modes,
+        "per_query": [
+            {
+                "index": i,
+                "question": r.question,
+                "gold_id": r.gold_id,
+                "gold_type": r.gold_type,
+                "failure_mode": r.failure_mode,
+                "found_at_rank": r.found_at,
+                "filter_applied": r.filter_applied,
+                "filter_size": r.filter_size,
+                "filter_contains_gold": r.filter_contains_gold,
+                "retrieved_ids": r.retrieved_ids,
+                "retrieved_scores": r.retrieved_scores,
+            }
+            for i, r in enumerate(query_results)
+        ],
+    }
+    _save_json(output, params.output_dir, f"{split}-retrieval")
  
  
 def run_eval(params: Namespace, system) -> None:
@@ -164,13 +208,22 @@ def run_eval(params: Namespace, system) -> None:
         logger.info(f"\n{'='*60}")
         logger.info(f"BONUS QUERIES — system responses")
         logger.info(f"{'='*60}")
+ 
+        bonus_output = []
         for q, a in zip(questions, answers):
             logger.info(f"\nQ: {q}")
             if a is None:
                 logger.info("A: [REFUSED — not answerable from corpus]")
+                bonus_output.append({"question": q, "answer": None, "doc_ids": []})
             else:
                 logger.info(f"A: {a.text}")
                 logger.info(f"   [source doc_ids: {a.doc_ids}]")
+                bonus_output.append({"question": q, "answer": a.text, "doc_ids": a.doc_ids})
+ 
+        _save_json(
+            {"split": split, "evaluation_type": "bonus", "responses": bonus_output},
+            params.output_dir, split,
+        )
         return
  
     challenges = make_challenges(rows)
@@ -195,20 +248,41 @@ def run_eval(params: Namespace, system) -> None:
         for i, (ch, score) in enumerate(zip(challenges, results["token_f1"])):
             logger.info(f"  [{i:03d}] f1={score:.3f}  Q: {ch.question[:80]}")
  
+    # ── Save JSON ─────────────────────────────────────────────────────────────
+    output = {
+        "split": split,
+        "evaluation_type": "qa",
+        "n_questions": len(challenges),
+        "summary": summary,
+        "per_question": [
+            {
+                "index": i,
+                "question": ch.question,
+                "target_answer": ch.target_answer,
+                "target_document_id": ch.target_document_id,
+                "scores": {name: results[name][i] for name in results},
+            }
+            for i, ch in enumerate(challenges)
+        ],
+    }
+    _save_json(output, params.output_dir, split)
+ 
  
 def main() -> None:
     parser = HfArgumentParser(
         (GeneralArguments, ChunkerArguments, RetrieverArguments, ReaderArguments)
-        )
+    )
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
-        # If we pass only one argument to the script and it's the path to a json file
-        gen_args, chunk_args, ret_args, read_args  = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
+        gen_args, chunk_args, ret_args, read_args = parser.parse_json_file(
+            json_file=os.path.abspath(sys.argv[1])
+        )
     elif len(sys.argv) == 2 and (sys.argv[1].endswith(".yaml") or sys.argv[1].endswith(".yml")):
-        # If we pass only one argument to the script and it's the path to a yaml file
-        gen_args, chunk_args, ret_args, read_args  = parser.parse_yaml_file(json_file=os.path.abspath(sys.argv[1]))
+        gen_args, chunk_args, ret_args, read_args = parser.parse_yaml_file(
+            json_file=os.path.abspath(sys.argv[1])
+        )
     else:
         gen_args, chunk_args, ret_args, read_args = parser.parse_args_into_dataclasses()
-
+ 
     logger.info(f"***** Main program *****")
     logger.info(f"==>> Building the retrieval-augmented generation system...")
     system = build_system(
@@ -220,14 +294,14 @@ def main() -> None:
         force_rebuild=gen_args.rebuild,
     )
  
-    
     if gen_args.ret_eval:
         logger.info(f"==>> Running the retrieval evaluation...")
         run_ret_eval(gen_args, system)
-    
+ 
     logger.info(f"==>> Scoring the answers...")
     run_eval(gen_args, system)
-    
+ 
  
 if __name__ == "__main__":
     main()
+ 
