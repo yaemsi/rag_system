@@ -2,7 +2,8 @@ from .arguments import (
     GeneralArguments,
     ChunkerArguments,
     RetrieverArguments,
-    ReaderArguments
+    ReaderArguments,
+    RerankerArguments,
 )
 
 from .chunker import (
@@ -59,12 +60,17 @@ from .retriever import (
     RetrievedChunk,
     Retriever,
 )
+
+from .reranker import (
+    Reranker,
+)
  
 __all__ = [
     "GeneralArguments",
     "ChunkerArguments",
     "RetrieverArguments",
     "ReaderArguments",
+    "RerankerArguments",
     "chunk_document",
     "attach_chunks",
     "Document",
@@ -94,6 +100,7 @@ __all__ = [
     "build_system",
     "Reader",
     "RetrievedChunk",
-    "Retriever"
+    "Retriever",
+    "Reranker",
     ]
  

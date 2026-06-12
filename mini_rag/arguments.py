@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal
- 
- 
+
+
 @dataclass
 class GeneralArguments:
     """
@@ -19,8 +19,14 @@ class GeneralArguments:
             "help": "Directory containing the index files."
         }
     )
-    split: Literal["train", "valid", "bonus"] = field(
-        default="train",
+    output_dir: str = field(
+        default="./output",
+        metadata={
+            "help": "Directory to save evaluation results."
+        }
+    )
+    split: Literal["train", "train_a", "train_b", "train_c", "train_d", "valid", "bonus"] = field(
+        default="valid",
         metadata={
             "help": "Which split to evaluate on."
         }
@@ -43,13 +49,6 @@ class GeneralArguments:
             "help": "Number of retrieved passages to provide to the reader during evaluation."
         }
     )
-    output_dir: str = field(
-        default="./output",
-        metadata={
-            "help": "Directory where result JSON files are saved. "
-                    "File name will be results-{split}.json."
-        }
-    )
     ret_eval: bool = field(
         default=False,
         metadata={
@@ -59,12 +58,12 @@ class GeneralArguments:
     verbose: bool = field(
         default=False,
         metadata={
-            "help": "Whether to print per-question token_f1 scores after QA evaluation."
+            "help": "Whether to print verbose evaluation output."
         }
     )
     def __post_init__(self):
         pass
- 
+
 @dataclass
 class ChunkerArguments:
     """
@@ -90,8 +89,8 @@ class ChunkerArguments:
     )
     def __post_init__(self):
         pass
- 
- 
+
+
 @dataclass
 class RetrieverArguments:
     """
@@ -123,9 +122,12 @@ class RetrieverArguments:
         }
     )
     top_k_final: int = field(
-        default=10,
+        default=20,
         metadata={
-            "help": "Number of final documents returned to the reader."
+            "help": "Number of candidates returned by the retriever. "
+                    "When reranking is enabled these are passed to the reranker "
+                    "which then keeps only top_k_reader for the LLM. "
+                    "Increase this (e.g. 20) to give the reranker more to work with."
         }
     )
     rrf_k: int = field(
@@ -140,7 +142,7 @@ class RetrieverArguments:
             "help": "Batch size for embedding procedure."
         }
     )
- 
+
     def __post_init__(self):
         # Auto-set embed_dim if model changed but dim was left at default
         model_dims = {
@@ -149,9 +151,43 @@ class RetrieverArguments:
         }
         if self.embed_model in model_dims:
             self.embed_dim = model_dims[self.embed_model]
- 
- 
- 
+
+
+
+
+@dataclass
+class RerankerArguments:
+    """
+    Reranker parameters. The reranker sits between the retriever and the
+    reader, re-scoring the top-k retrieved chunks with a cross-encoder for
+    more accurate ranking before passing them to the LLM.
+    """
+    use_reranker: bool = field(
+        default=False,
+        metadata={
+            "help": "Whether to apply cross-encoder reranking after retrieval. "
+                    "Disable to fall back to RRF-ranked retrieval order."
+        }
+    )
+    rerank_model: str = field(
+        default="dengcao/Qwen3-Reranker-4B:Q5_K_M",
+        metadata={
+            "help": "Ollama reranker model. Pull with: ollama pull dengcao/Qwen3-Reranker-4B:Q5_K_M"
+        }
+    )
+    top_k_reader: int = field(
+        default=5,
+        metadata={
+            "help": "Number of chunks passed to the LLM reader after reranking. "
+                    "Fewer, higher-quality chunks reduce noise in the context window. "
+                    "When use_reranker=False, the first top_k_reader chunks from the "
+                    "retriever are used instead."
+        }
+    )
+
+    def __post_init__(self) -> None:
+        pass
+
 @dataclass
 class ReaderArguments:
     """
@@ -163,14 +199,23 @@ class ReaderArguments:
             "help": "Reader architecture."
         }
     )
- 
+
+    inference_delay: float = field(
+        default=0.0,
+        metadata={
+            "help": "Seconds to sleep after each LLM call. "
+                    "Set to 1.0–2.0 on sustained workloads to prevent "
+                    "thermal crashes (e.g. RTX 5090 under full train eval)."
+        }
+    )
+
     low_confidence_threshold: float = field(
         default=0.005,
         metadata={
             "help": "Threshold for low-confidence retrievals."
         }
     )
- 
+
     max_tokens: int | None = field(
         default=None,  #4096 for qwen2.5:7b, 8192 for mistral-nemo and qwen2.5:14b
         metadata={
@@ -189,6 +234,6 @@ class ReaderArguments:
             "help": "ampling temperature (0.0 = deterministic)."
         }
     )
- 
+
     def __post_init__(self):
         pass
