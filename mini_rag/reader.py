@@ -10,6 +10,7 @@ Handles three answer modes:
 from __future__ import annotations
  
 from argparse import Namespace
+import time
  
 import ollama
  
@@ -101,6 +102,11 @@ class Reader:
         context = _format_context(chunks)
         prompt = _PROMPT_TEMPLATE.format(question=question, context=context)
         raw = _call_ollama(self._params, _SYSTEM_PROMPT, prompt)
+
+        # Cool-down between inference calls — helps prevent thermal crashes
+        # on sustained workloads (e.g. RTX 5090 under long eval runs)
+        if self._params.inference_delay > 0:
+            time.sleep(self._params.inference_delay)
  
         if _UNANSWERABLE_SIGNAL.lower() in raw.lower():
             return None, []

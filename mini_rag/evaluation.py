@@ -7,7 +7,8 @@ Also defines the QnAChallenge data class for representing individual question-an
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
- 
+from tqdm import tqdm
+
 from mini_rag.qna_system import GroundedAnswer, QnASystem
 from mini_rag.metrics import Metric, RetrievalMetric
  
@@ -53,7 +54,8 @@ class EvaluationLoop:
  
     def _get_answers(self, qna_system: QnASystem) -> list[GroundedAnswer | None]:
         answers = []
-        for start in range(0, self._num_questions, self._batch_size):
+        batches = range(0, self._num_questions, self._batch_size)
+        for start in tqdm(batches, desc="Answering questions", unit="batch"):
             end = start + self._batch_size
             questions = [c.question for c in self._challenges[start:end]]
             answers += qna_system.get_answers(questions)
@@ -146,7 +148,7 @@ class RetrievalEvaluationLoop:
         retrieved_ids_list: list[list[str]] = []
         query_results: list[RetrievalQueryResult] = []
  
-        for ch in self._challenges:
+        for ch in tqdm(self._challenges, desc="Retrieving", unit="q"):
             gold_id = ch.target_document_id
             candidate_ids = retriever.filter_by_metadata(ch.question)
             chunks = retriever.retrieve(
