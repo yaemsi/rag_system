@@ -55,7 +55,8 @@ from mini_rag import (
     MeanReciprocalRank,
     AnswerCoverageMetric,
     EvaluationLoop,
-    ExactMatchMetric,
+    Rouge2Metric,
+    RougeLMetric,
     QnAChallenge,
     RefusalRateMetric,
     TokenF1Metric,
@@ -227,7 +228,8 @@ def run_eval(params: Namespace, system) -> None:
 
     challenges = make_challenges(rows)
     metrics = [
-        ExactMatchMetric(),
+        Rouge2Metric(),
+        RougeLMetric(),
         TokenF1Metric(),
         AnswerCoverageMetric(),
         RefusalRateMetric(),
