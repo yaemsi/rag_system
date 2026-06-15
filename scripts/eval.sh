@@ -9,7 +9,7 @@ export CUDA_VISIBLE_DEVICES=0
 # Parameters
 export DATA_DIR="./data/gz"
 export INDEX_DIR="./data/index"
-export SPLIT="train_b" # "train train_a train_b train_c train_d valid bonus"
+export SPLIT="valid" # "train train_a train_b train_c train_d valid bonus"
 export BATCH_SIZE=16
 export EMBED_MODEL="nomic-embed-text" # "nomic-embed-text" "mxbai-embed-large"
 export CHUNK_SIZE=800    
@@ -34,7 +34,6 @@ python main.py \
     --max_tokens $MAX_TOKENS \
     --num_ctx $NUM_CTX \
     --generation_model $GEN_MODEL \
-    --top_k_reader $TOP_K_READER \
     --output_dir $OUTPUT_DIR \
     --embed_model $EMBED_MODEL \
     --chunk_size $CHUNK_SIZE \

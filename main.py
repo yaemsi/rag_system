@@ -74,11 +74,11 @@ def make_challenges(rows: list[dict]) -> list[QnAChallenge]:
     ]
 
 
-def _save_json(data: dict, output_dir: str, split: str) -> None:
+def _save_json(data: dict, output_dir: str, model:str, split: str) -> None:
     """Serialize results dict to output_dir/results-{split}.json."""
     out_path = Path(output_dir)
     out_path.mkdir(parents=True, exist_ok=True)
-    file_path = out_path / f"results-{split}.json"
+    file_path = out_path / f"results-{model}-{split}.json"
     with open(file_path, "w") as f:
         json.dump(data, f, indent=2)
     logger.info(f"==>> Results saved to {file_path}")
@@ -194,7 +194,7 @@ def run_ret_eval(params: Namespace, system) -> None:
             for i, r in enumerate(query_results)
         ],
     }
-    _save_json(output, params.output_dir, f"{split}-retrieval")
+    _save_json(output, params.output_dir, params.embed_model, f"{split}-retrieval")
 
 
 def run_eval(params: Namespace, system) -> None:
@@ -222,7 +222,7 @@ def run_eval(params: Namespace, system) -> None:
 
         _save_json(
             {"split": split, "evaluation_type": "bonus", "responses": bonus_output},
-            params.output_dir, split,
+            params.output_dir, params.generation_model, split,
         )
         return
 
@@ -266,7 +266,7 @@ def run_eval(params: Namespace, system) -> None:
             for i, ch in enumerate(challenges)
         ],
     }
-    _save_json(output, params.output_dir, split)
+    _save_json(output, params.output_dir, params.generation_model, split)
 
 
 def main() -> None:
@@ -298,10 +298,14 @@ def main() -> None:
 
     if gen_args.ret_eval:
         logger.info(f"==>> Running the retrieval evaluation...")
+        gen_args.embed_model = ret_args.embed_model  # for logging purposes in run_ret_eval
         run_ret_eval(gen_args, system)
+        gen_args.__dict__.pop("embed_model")  # remove to avoid confusion in run_eval
 
     logger.info(f"==>> Scoring the answers...")
+    gen_args.generation_model = read_args.generation_model  # for logging purposes in run_eval
     run_eval(gen_args, system)
+    gen_args.__dict__.pop("generation_model")
 
 
 if __name__ == "__main__":
