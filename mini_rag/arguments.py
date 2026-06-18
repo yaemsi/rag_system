@@ -96,10 +96,13 @@ class RetrieverArguments:
     """
     Retriever parameters.
     """
-    embed_model: Literal["nomic-embed-text", "mxbai-embed-large"] = field(
-        default="nomic-embed-text",
+    embed_model: str = field(
+        default="nomic-ai/nomic-embed-text-v1",
         metadata={
-            "help": "Ollama embedding model to use."
+            "help": "Model ID served by the vLLM embedding server. "
+                    "Must match the model name used when starting vLLM. "
+                    "Examples: nomic-ai/nomic-embed-text-v1, "
+                    "intfloat/multilingual-e5-large-instruct."
         }
     )
     embed_dim: int = field(
@@ -143,6 +146,14 @@ class RetrieverArguments:
         }
     )
 
+    embed_base_url: str = field(
+        default="http://localhost:8000/v1",
+        metadata={
+            "help": "Base URL of the vLLM embedding server "
+                    "(OpenAI-compatible /v1/embeddings endpoint)."
+        }
+    )
+
     def __post_init__(self):
         # Auto-set embed_dim if model changed but dim was left at default
         model_dims = {
@@ -170,9 +181,12 @@ class RerankerArguments:
         }
     )
     rerank_model: str = field(
-        default="dengcao/Qwen3-Reranker-4B:Q5_K_M",
+        default="Qwen/Qwen3-Reranker-4B",
         metadata={
-            "help": "Ollama reranker model. Pull with: ollama pull dengcao/Qwen3-Reranker-4B:Q5_K_M"
+            "help": "Model ID served by the vLLM reranker server. "
+                    "Must match the model name used when starting vLLM. "
+                    "Examples: Qwen/Qwen3-Reranker-4B, "
+                    "cross-encoder/ms-marco-MiniLM-L-6-v2."
         }
     )
     top_k_reader: int = field(
@@ -185,6 +199,14 @@ class RerankerArguments:
         }
     )
 
+    rerank_base_url: str = field(
+        default="http://localhost:8002/v1",
+        metadata={
+            "help": "Base URL of the vLLM reranker server "
+                    "(OpenAI-compatible /v1/completions endpoint)."
+        }
+    )
+
     def __post_init__(self) -> None:
         pass
 
@@ -193,10 +215,21 @@ class ReaderArguments:
     """
     Reader parameters.
     """
-    generation_model: Literal["mistral-nemo", "qwen2.5:7b", "qwen2.5:14b"] = field(
-        default="mistral-nemo",
+    generation_model: str = field(
+        default="mistralai/Mistral-Nemo-Instruct-2407",
         metadata={
-            "help": "Reader architecture."
+            "help": "Model ID served by the vLLM generation server. "
+                    "Must match the model name used when starting vLLM. "
+                    "Examples: mistralai/Mistral-Nemo-Instruct-2407, "
+                    "Qwen/Qwen2.5-14B-Instruct."
+        }
+    )
+
+    generation_base_url: str = field(
+        default="http://localhost:8001/v1",
+        metadata={
+            "help": "Base URL of the vLLM generation server "
+                    "(OpenAI-compatible /v1/chat/completions endpoint)."
         }
     )
 

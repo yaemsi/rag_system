@@ -78,7 +78,7 @@ def _save_json(data: dict, output_dir: str, model:str, split: str) -> None:
     """Serialize results dict to output_dir/results-{split}.json."""
     out_path = Path(output_dir)
     out_path.mkdir(parents=True, exist_ok=True)
-    file_path = out_path / f"results-{model}-{split}.json"
+    file_path = out_path / f"results-{model.replace("/", "_").replace("\\", "_")}-{split}.json"
     with open(file_path, "w") as f:
         json.dump(data, f, indent=2)
     logger.info(f"==>> Results saved to {file_path}")

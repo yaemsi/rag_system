@@ -26,23 +26,25 @@ dependencies = [
     "matplotlib",
     "wandb",
     "pre-commit",
-    "ollama>=0.6.2",
-    "faiss-cpu>=1.14.2",
-    "rank-bm25>=0.2.2",
-    "rouge-score>=0.1.2",
-    "tqdm>=4.68.1",
+    "ollama",
+    "openai",
+    "faiss-cpu",
+    "rank-bm25",
+    "rouge-score",
+    "tqdm", 
+    "vllm>=0.6.0",
 ]
 
 [tool.uv.sources]
-torch = {index = "pytorch-cu132", marker = "sys_platform == 'linux'"}
-torchvision = {index = "pytorch-cu132", marker = "sys_platform == 'linux'"}
-torchaudio = {index = "pytorch-cu132", marker = "sys_platform == 'linux'"}
-flash-attn-3 = { url = "https://github.com/windreamer/flash-attention3-wheels/releases/download/2026.05.20-072445f/flash_attn_3-3.0.0%2B20260519.cu132torch2120cxx11abitrue.8a8b2f-cp39-abi3-linux_x86_64.whl" }
+torch = {index = "pytorch-cu130", marker = "sys_platform == 'linux'"}
+torchvision = {index = "pytorch-cu130", marker = "sys_platform == 'linux'"}
+torchaudio = {index = "pytorch-cu130", marker = "sys_platform == 'linux'"}
+flash-attn-3 = {url = "https://github.com/windreamer/flash-attention3-wheels/releases/download/2026.06.09-20ddfb1/flash_attn_3-3.0.0+20260609.cu130torch2120cxx11abitrue.bc58ab-cp310-abi3-linux_x86_64.whl"}
 
 
 [[tool.uv.index]]
-name = "pytorch-cu132"
-url = "https://download.pytorch.org/whl/cu132"
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
 
 
 [tool.setuptools.packages.find]
