@@ -44,15 +44,17 @@ export CHUNK_OVERLAP=150
 export MIN_SPLIT_LEN=850
 
 # ── Generation server ─────────────────────────────────────────────────────────
-export GEN_MODEL="casperhansen/mistral-nemo-instruct-2407-awq"
+#export GEN_MODEL="casperhansen/mistral-nemo-instruct-2407-awq"
+#export GEN_MODEL="mistralai/mistral-nemo-instruct-2407"
+export GEN_MODEL="Qwen/Qwen3-8B-AWQ"
 export GEN_BASE_URL="http://localhost:8001/v1"
 export MAX_TOKENS=2048
 export TEMPERATURE=0.0
 export INFERENCE_DELAY=0.0
 
 # ── Reranker server (disabled by default) ────────────────────────────────────
-export USE_RERANKER=true
-export RERANK_MODEL="Qwen/Qwen3-Reranker-0.6B"
+export USE_RERANKER=false
+export RERANK_MODEL="Qwen/Qwen3-Reranker-4B"
 export RERANK_BASE_URL="http://localhost:8002/v1"
 export TOP_K_READER=5
 
@@ -79,7 +81,7 @@ python main.py \
     --rerank_model      $RERANK_MODEL \
     --rerank_base_url   $RERANK_BASE_URL \
     --top_k_reader      $TOP_K_READER \
-    --rebuild 
+    --rebuild \
 
 # --use_reranker      $USE_RERANKER \
 # --rerank_model      $RERANK_MODEL \
