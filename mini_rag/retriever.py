@@ -212,34 +212,45 @@ class Retriever:
     def filter_by_metadata(self, query: str) -> set[str] | None:
         """
         Heuristic: if the query mentions a known product name / version,
-        return the set of matching doc IDs to pre-filter retrieval.
-        Returns None if no strong metadata signal is found — in which case
-        retrieval runs over the full index.
+        return a set of candidate doc IDs to restrict retrieval to.
+        Returns None if no strong metadata signal is found — retrieval
+        then runs over the full index.
  
-        Scoring per doc (higher = more specific match):
-          +3  exact combined name match (e.g. "Solara 40C" as phrase in query)
-          +2  suffix matches (most discriminative for product variants)
-          +2  version matches (normalises both "v2.1.15" and "2.1.15")
-          +1  prefix matches (broad family signal)
+        Scoring per synthetic doc:
+          +3  prefix + suffix appear as a phrase in the query (e.g. "Solara 40C")
+          +2  suffix appears in the query  (most discriminative signal)
+          +2  version appears in the query (normalises "v2.1.15" and "2.1.15")
+          +1  prefix appears in the query  (broad family signal)
  
-        Fallback tiers (applied in order, return first non-empty):
-          1. score >= 4  (prefix + suffix + version — very specific, always trust)
-          2. score >= 3  (suffix + version, or full combined match)
-          3. score >= 2  (suffix alone, or version alone)
-          4. score >= 1  (prefix alone — only if result set is large enough,
-                          otherwise fall back to full index to avoid FILTER_KILL
-                          on small wrong sets)
+        Possible scores and what they mean:
+          8 = phrase + prefix + suffix + version  → maximally specific
+          7 = phrase + suffix + version
+          6 = phrase + prefix + version  OR  phrase + prefix + suffix
+          5 = prefix + suffix + version  OR  phrase + version  OR  phrase + suffix
+          4 = suffix + version           OR  phrase + prefix   → version matched
+          3 = prefix + version           OR  prefix + suffix   OR  phrase only
+          2 = suffix only                OR  version only      → version NOT matched
+          1 = prefix only                                       → version NOT matched
+ 
+        Tiers (tried in order, first non-empty is returned):
+          score >= 4  →  version (or phrase+prefix) matched: trust, return as-is
+          score >= 3  →  good signal: trust, return as-is
+          score >= 2  →  suffix-only or version-only match:
+                           if the query contains a version string, the correct doc
+                           may have a different version in metadata — expand to
+                           the full prefix family so the right version has a chance
+          score >= 1  →  prefix-only: only trust if the set is large enough;
+                           a small prefix-only set is likely the wrong family and
+                           causes FILTER_KILL, so fall back to full index instead
         """
-
-        # Minimum token length to prevent short common words (e.g. "qubit", "unify")
-        # from firing the metadata filter on Coveo docs where they appear as API names.
+        # Minimum token length to prevent short common words (e.g. "qubit")
+        # from firing the metadata filter on Coveo API queries.
         _MIN_PREFIX_TOKEN_LEN = 6
-    
-        # If the filter returns a small candidate set (≤ this) and we're only matching
-        # on prefix alone (score=1), fall back to full index — a tight wrong set is
-        # worse than no filter at all.
+ 
+        # If the filter returns a small candidate set (≤ this) and we're only
+        # matching on prefix alone (score=1), fall back to full index.
         _MAX_PREFIX_ONLY_SIZE = 6
-
+ 
         q_lower = query.lower()
         q_tokens = set(re.findall(r"\w+", q_lower))
         scores_map: dict[str, int] = {}
@@ -250,28 +261,26 @@ class Retriever:
  
             score = 0
             prefix  = doc.product_prefix
-            suffix  = doc.effective_suffix   # product_suffix or inferred_suffix from text
+            suffix  = doc.effective_suffix   # product_suffix or inferred_suffix
             version = doc.product_version
  
-            # Full combined name (e.g. "Solara 40C")
+            # Phrase match: "Prefix Suffix" as a substring (e.g. "Solara 40C")
             if prefix and suffix:
-                combined = f"{prefix.lower()} {suffix.lower()}"
-                if combined in q_lower:
+                if f"{prefix.lower()} {suffix.lower()}" in q_lower:
                     score += 3
  
-            # Individual fields
+            # Individual field matches
             if prefix and prefix.lower() in q_lower:
                 score += 1
             if suffix and suffix.lower() in q_lower:
                 score += 2
             if version:
-                # Normalise both "v1.2.3" and "1.2.3" forms
                 v_clean = version.lower().lstrip("v")
                 if version.lower() in q_lower or v_clean in q_lower:
                     score += 2
  
-            # Token-level prefix match — enforce minimum token length to prevent
-            # short common words ("qubit", "unify") from matching Coveo API queries
+            # Token-level prefix fallback — only for long-enough tokens to avoid
+            # matching common short words like "qubit" in Coveo API queries
             if score == 0 and prefix:
                 for tok in re.findall(r"\w+", prefix.lower()):
                     if len(tok) >= _MIN_PREFIX_TOKEN_LEN and tok in q_tokens:
@@ -284,40 +293,34 @@ class Retriever:
         if not scores_map:
             return None
  
-        # Return most specific match tier with at least 1 result.
-        # For tier 1 (prefix-only, score=1): only apply the filter if the
-        # candidate set is large enough — a small tight wrong set is worse
-        # than no filter (it causes FILTER_KILL with no fallback).
-        for threshold in (4, 3, 2):
+        # ── Tier 1 & 2: score >= 4 or >= 3 — version or phrase matched, trust ──
+        for threshold in (4, 3):
             tier = {did for did, s in scores_map.items() if s >= threshold}
             if tier:
-                # Version-mismatch expansion: if the query contains a version string
-                # but no doc in this tier matches it, expand to the full prefix+suffix
-                # family to avoid locking into wrong-version docs.
-                # E.g. "Yore ZQ8 version 1.1.10" → suffix matches (score=2) but
-                # version 1.1.10 is absent → expand to all Yore ZQ8 docs.
-                version_in_query = bool(re.search(r"\b\d+\.\d+\.\d+\b", query.lower()))
-                if version_in_query and threshold == 2:
-                    # Check if any doc in this tier actually matched the version
-                    version_matched = {
-                        did for did, s in scores_map.items()
-                        if s >= 4  # score>=4 requires version match
-                    }
-                    if not version_matched:
-                        # No version match — expand to full prefix family to avoid
-                        # locking into wrong-version docs
-                        expanded = {did for did, s in scores_map.items() if s >= 1}
-                        if len(expanded) > len(tier):
-                            return expanded
                 return tier
  
-        # Tier 4: prefix-only match — only trust if set is large enough
-        # (large set = prefix is genuinely discriminative; small set = likely wrong family)
+        # ── Tier 3: score >= 2 — suffix-only or version-only ────────────────────
+        # We know at this point that no doc scored >= 3, meaning:
+        #   - docs scoring 2 matched suffix only OR version only (no version+suffix)
+        # If the query contains a version string, the gold doc's version may be
+        # absent or stored differently in metadata. Expand to the full prefix
+        # family so the correct version has a chance to rank.
+        tier2 = {did for did, s in scores_map.items() if s >= 2}
+        if tier2:
+            version_in_query = bool(re.search(r"\b\d+\.\d+\.\d+\b", q_lower))
+            if version_in_query:
+                prefix_family = {did for did, s in scores_map.items() if s >= 1}
+                if len(prefix_family) > len(tier2):
+                    return prefix_family
+            return tier2
+ 
+        # ── Tier 4: score == 1 — prefix only ────────────────────────────────────
+        # Only trust if the set is large enough to be genuinely discriminative.
+        # A small prefix-only set is likely locking into the wrong product family.
         prefix_tier = {did for did, s in scores_map.items() if s >= 1}
         if len(prefix_tier) > _MAX_PREFIX_ONLY_SIZE:
             return prefix_tier
  
-        # Prefix-only with small set → fall back to full index
         return None
  
  

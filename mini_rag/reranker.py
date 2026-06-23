@@ -75,7 +75,6 @@ def _score_chunk(model: str, query: str, document: str) -> float:
                     return math.exp(lp)   # convert log-prob → prob
         except Exception:
             pass
-
     # Fallback: parse text directly
     if re.search(r"\byes\b", text):
         return 1.0

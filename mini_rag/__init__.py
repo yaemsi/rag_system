@@ -27,7 +27,8 @@ from .evaluation import (
 )
 
 from .metrics import (
-    ExactMatchMetric,
+    Rouge2Metric,
+    RougeLMetric,
     TokenF1Metric,
     AnswerCoverageMetric,
     RefusalRateMetric,
@@ -78,7 +79,8 @@ __all__ = [
     "load_queries",
     "QnAChallenge",
     "Metric",
-    "ExactMatchMetric",
+    "Rouge2Metric",
+    "RougeLMetric",
     "TokenF1Metric",
     "AnswerCoverageMetric",
     "RefusalRateMetric",

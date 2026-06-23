@@ -1,18 +1,24 @@
 """
 Metrics implemented:
-  1. ExactMatchMetric     — strict string equality after normalisation
-  2. TokenF1Metric        — token-level precision/recall F1 (standard QA metric)
-  3. AnswerCoverageMetric — fraction of gold answer tokens present in predicted answer
-  4. RefusalRateMetric    — fraction of questions the system refused to answer (None)
-  5. RecallAtK            — recall at k
-  6. PrecisionAtK         — precision at k
-  7. MeanReciprocalRank   — mean reciprocal rank
+  1. Rouge2Metric         — bigram F1 (ROUGE-2); rewards correct phrases and
+                            specific multi-word terms (product names, versions)
+  2. RougeLMetric         — longest common subsequence F1 (ROUGE-L); rewards
+                            fluency and word order
+  3. TokenF1Metric        — token-level precision/recall F1 (standard QA metric)
+  4. AnswerCoverageMetric — fraction of gold answer tokens present in predicted answer
+  5. RefusalRateMetric    — fraction of questions the system refused to answer (None)
+  6. RecallAtK            — recall at k
+  7. PrecisionAtK         — precision at k
+  8. MeanReciprocalRank   — mean reciprocal rank
 """
 from __future__ import annotations
 
 import re
 import string
 from abc import ABC, abstractmethod
+
+from rouge_score import rouge_scorer
+
 from mini_rag.qna_system import GroundedAnswer
 
  
@@ -52,15 +58,23 @@ class Metric(ABC):
  
 
 # ── Metrics ───────────────────────────────────────────────────────────────────
- 
-class ExactMatchMetric(Metric):
+
+class Rouge2Metric(Metric):
     """
-    1.0 if the normalised predicted answer exactly matches the gold answer,
-    0.0 otherwise. None predictions score 0.0.
- 
-    Why: a strict upper-bound signal; useful for short factual answers.
+    ROUGE-2: bigram-level F1 between prediction and gold answer.
+    None predictions score 0.0.
+
+    Why: bigrams reward correct phrases rather than just individual tokens —
+    critical here because product names (e.g. "Qoria SGI"), version strings
+    (e.g. "v1.2.17") and feature names are all multi-word expressions.
+    ROUGE-2 differentiates a good paraphrase from a wrong answer far better
+    than unigram metrics. Replaces exact_match, which is structurally always
+    0 when gold answers are fluent paraphrased summaries.
     """
- 
+
+    def __init__(self) -> None:
+        self._scorer = rouge_scorer.RougeScorer(["rouge2"], use_stemmer=False)
+
     def compute(
         self,
         answers: list[GroundedAnswer | None],
@@ -71,13 +85,46 @@ class ExactMatchMetric(Metric):
             if pred is None:
                 scores.append(0.0)
             else:
-                scores.append(float(_normalise(pred.text) == _normalise(gold)))
+                result = self._scorer.score(gold, pred.text)
+                scores.append(result["rouge2"].fmeasure)
         return scores
- 
+
     def __str__(self) -> str:
-        return "exact_match"
- 
- 
+        return "rouge2"
+
+
+class RougeLMetric(Metric):
+    """
+    ROUGE-L: longest common subsequence F1 between prediction and gold answer.
+    None predictions score 0.0.
+
+    Why: ROUGE-L rewards fluency and word order — it checks whether the answer
+    preserves the sequence of key information, not just the presence of words.
+    Complements ROUGE-2 (phrase overlap) and token_f1 (unigram overlap) to
+    give a fuller picture of answer quality.
+    """
+
+    def __init__(self) -> None:
+        self._scorer = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=False)
+
+    def compute(
+        self,
+        answers: list[GroundedAnswer | None],
+        target_answers: list[str],
+    ) -> list[float]:
+        scores = []
+        for pred, gold in zip(answers, target_answers):
+            if pred is None:
+                scores.append(0.0)
+            else:
+                result = self._scorer.score(gold, pred.text)
+                scores.append(result["rougeL"].fmeasure)
+        return scores
+
+    def __str__(self) -> str:
+        return "rougeL"
+
+
 class TokenF1Metric(Metric):
     """
     Token-level F1: harmonic mean of precision and recall over bag-of-words.
